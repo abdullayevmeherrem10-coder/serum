@@ -265,17 +265,43 @@
 
   async function start() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } },
+      // Try back camera first, fall back to any camera
+      let constraints = {
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false
-      });
+      };
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (e) {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+
       video.srcObject = stream;
-      await new Promise(resolve => video.onloadedmetadata = resolve);
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
+      video.setAttribute('autoplay', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('muted', '');
+
+      // Wait for video to be ready - use multiple events for compatibility
+      await new Promise((resolve, reject) => {
+        let resolved = false;
+        const done = () => { if (!resolved) { resolved = true; resolve(); } };
+        video.onloadedmetadata = done;
+        video.onloadeddata = done;
+        video.oncanplay = done;
+        setTimeout(done, 3000); // Fallback timeout
+      });
+
+      // Explicitly play - required on many Android devices
+      try { await video.play(); } catch (e) { console.log('Auto-play:', e); }
+
+      // Wait a moment for video dimensions to stabilize
+      await new Promise(r => setTimeout(r, 500));
+
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
       await requestWakeLock();
-      
+
       monitoring = true;
       previousFrame = null;
       lastDropTime = Date.now();
@@ -283,7 +309,7 @@
       stopBtn.disabled = false;
       statusEl.className = 'status';
       statusEl.textContent = 'İzlənilir... Damcı gözlənilir';
-      
+
       detectLoop();
     } catch (err) {
       alert('Kamera əlçatan deyil: ' + err.message);
